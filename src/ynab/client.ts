@@ -47,6 +47,7 @@ export interface YnabClientOptions {
   fetchImpl?: FetchLike;
   now?: () => number;
   ttlMs?: number;
+  requestTimeoutMs?: number;
 }
 
 export class YnabConfigurationError extends Error {
@@ -58,17 +59,17 @@ export class YnabConfigurationError extends Error {
 
 export class YnabApiError extends Error {
   status: number;
-  errorId?: string;
-  errorName?: string;
-  detail?: string;
+  errorId: string | undefined;
+  errorName: string | undefined;
+  detail: string | undefined;
   kind: string;
 
   constructor(args: {
     status: number;
     message: string;
-    errorId?: string;
-    errorName?: string;
-    detail?: string;
+    errorId?: string | undefined;
+    errorName?: string | undefined;
+    detail?: string | undefined;
     kind: string;
   }) {
     super(args.message);
@@ -93,14 +94,15 @@ export class YnabApiError extends Error {
 }
 
 export class YnabClient {
-  private readonly accessToken?: string;
+  private readonly accessToken: string | undefined;
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
   private readonly now: () => number;
   private readonly ttlMs: number;
+  private readonly requestTimeoutMs: number;
   private readonly deltaCache = new Map<string, DeltaCacheEntry>();
   private readonly memoryCache = new Map<string, MemoryCacheEntry>();
-  private defaultPlanCache?: ResolvedPlanCacheEntry;
+  private defaultPlanCache: ResolvedPlanCacheEntry | undefined;
 
   constructor(options: YnabClientOptions = {}) {
     this.accessToken = options.accessToken;
@@ -108,13 +110,14 @@ export class YnabClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
     this.ttlMs = options.ttlMs ?? 30_000;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
   }
 
-  async listPlans(refresh = false): Promise<ClientResult<{ plans: unknown[] }>> {
+  async listPlans(refresh = false): Promise<ClientResult<{ plans: Array<Record<string, any>>; default_plan?: Record<string, any> }>> {
     if (refresh) {
       this.defaultPlanCache = undefined;
     }
-    return this.getJson<{ plans: unknown[] }>("/plans", { refresh });
+    return this.getJson<{ plans: Array<Record<string, any>>; default_plan?: Record<string, any> }>("/plans", { refresh });
   }
 
   async resolvePlanId(planId = "default", refresh = false): Promise<string> {
@@ -128,7 +131,7 @@ export class YnabClient {
 
     const response = await this.listPlans(refresh);
     const plans = Array.isArray(response.data.plans) ? response.data.plans : [];
-    const resolvedPlanId = selectDefaultPlanId(plans);
+    const resolvedPlanId = selectDefaultPlanId(plans, response.data.default_plan);
 
     this.defaultPlanCache = {
       planId: resolvedPlanId,
@@ -141,8 +144,8 @@ export class YnabClient {
   async getPlan(
     planId: string,
     refresh = false,
-  ): Promise<ClientResult<{ plan: Record<string, unknown>; server_knowledge?: number }>> {
-    return this.getJson<{ plan: Record<string, unknown>; server_knowledge?: number }>(
+  ): Promise<ClientResult<{ plan: Record<string, any>; server_knowledge?: number }>> {
+    return this.getJson<{ plan: Record<string, any>; server_knowledge?: number }>(
       `/plans/${encodeURIComponent(planId)}`,
       { refresh },
     );
@@ -152,10 +155,10 @@ export class YnabClient {
     planId: string,
     month: string,
     refresh = false,
-  ): Promise<ClientResult<{ month: Record<string, unknown> }>> {
+  ): Promise<ClientResult<{ month: Record<string, any> }>> {
     const normalizedMonth = normalizeMonthPathSegment(month);
 
-    return this.getJson<{ month: Record<string, unknown> }>(
+    return this.getJson<{ month: Record<string, any> }>(
       `/plans/${encodeURIComponent(planId)}/months/${normalizedMonth}`,
       { refresh },
     );
@@ -164,8 +167,8 @@ export class YnabClient {
   async listAccounts(
     planId: string,
     refresh = false,
-  ): Promise<ClientResult<{ accounts: unknown[]; server_knowledge?: number }>> {
-    return this.getJson<{ accounts: unknown[]; server_knowledge?: number }>(
+  ): Promise<ClientResult<{ accounts: Array<Record<string, any>>; server_knowledge?: number }>> {
+    return this.getJson<{ accounts: Array<Record<string, any>>; server_knowledge?: number }>(
       `/plans/${encodeURIComponent(planId)}/accounts`,
       { refresh },
     );
@@ -174,8 +177,8 @@ export class YnabClient {
   async listCategories(
     planId: string,
     refresh = false,
-  ): Promise<ClientResult<{ category_groups: unknown[]; server_knowledge?: number }>> {
-    return this.getJson<{ category_groups: unknown[]; server_knowledge?: number }>(
+  ): Promise<ClientResult<{ category_groups: Array<Record<string, any>>; server_knowledge?: number }>> {
+    return this.getJson<{ category_groups: Array<Record<string, any>>; server_knowledge?: number }>(
       `/plans/${encodeURIComponent(planId)}/categories`,
       { refresh },
     );
@@ -184,13 +187,13 @@ export class YnabClient {
   async listTransactions(
     planId: string,
     query: {
-      since_date?: string;
-      until_date?: string;
-      type?: "uncategorized" | "unapproved";
+      since_date?: string | undefined;
+      until_date?: string | undefined;
+      type?: "uncategorized" | "unapproved" | undefined;
     } = {},
     refresh = false,
-  ): Promise<ClientResult<{ transactions: unknown[]; server_knowledge?: number }>> {
-    return this.getJson<{ transactions: unknown[]; server_knowledge?: number }>(
+  ): Promise<ClientResult<{ transactions: Array<Record<string, any>>; server_knowledge?: number }>> {
+    return this.getJson<{ transactions: Array<Record<string, any>>; server_knowledge?: number }>(
       `/plans/${encodeURIComponent(planId)}/transactions`,
       { query, refresh },
     );
@@ -199,8 +202,8 @@ export class YnabClient {
   async listPayees(
     planId: string,
     refresh = false,
-  ): Promise<ClientResult<{ payees: unknown[]; server_knowledge?: number }>> {
-    return this.getJson<{ payees: unknown[]; server_knowledge?: number }>(
+  ): Promise<ClientResult<{ payees: Array<Record<string, any>>; server_knowledge?: number }>> {
+    return this.getJson<{ payees: Array<Record<string, any>>; server_knowledge?: number }>(
       `/plans/${encodeURIComponent(planId)}/payees`,
       { refresh },
     );
@@ -211,10 +214,10 @@ export class YnabClient {
     month: string,
     categoryId: string,
     refresh = false,
-  ): Promise<ClientResult<{ category: Record<string, unknown> }>> {
+  ): Promise<ClientResult<{ category: Record<string, any> }>> {
     const normalizedMonth = normalizeMonthPathSegment(month);
 
-    return this.getJson<{ category: Record<string, unknown> }>(
+    return this.getJson<{ category: Record<string, any> }>(
       `/plans/${encodeURIComponent(planId)}/months/${normalizedMonth}/categories/${encodeURIComponent(categoryId)}`,
       { refresh },
     );
@@ -223,8 +226,8 @@ export class YnabClient {
   async listScheduledTransactions(
     planId: string,
     refresh = false,
-  ): Promise<ClientResult<{ scheduled_transactions: unknown[]; server_knowledge?: number }>> {
-    return this.getJson<{ scheduled_transactions: unknown[]; server_knowledge?: number }>(
+  ): Promise<ClientResult<{ scheduled_transactions: Array<Record<string, any>>; server_knowledge?: number }>> {
+    return this.getJson<{ scheduled_transactions: Array<Record<string, any>>; server_knowledge?: number }>(
       `/plans/${encodeURIComponent(planId)}/scheduled_transactions`,
       { refresh },
     );
@@ -235,11 +238,11 @@ export class YnabClient {
     month: string,
     categoryId: string,
     budgeted: number,
-  ): Promise<ClientResult<{ category: Record<string, unknown>; server_knowledge?: number }>> {
+  ): Promise<ClientResult<{ category: Record<string, any>; server_knowledge?: number }>> {
     const normalizedMonth = normalizeMonthPathSegment(month);
     const path = `/plans/${encodeURIComponent(planId)}/months/${normalizedMonth}/categories/${encodeURIComponent(categoryId)}`;
 
-    return this.sendJson<{ category: Record<string, unknown>; server_knowledge?: number }>(
+    return this.sendJson<{ category: Record<string, any>; server_knowledge?: number }>(
       "PATCH",
       path,
       { category: { budgeted } },
@@ -299,7 +302,7 @@ export class YnabClient {
     }
 
     const url = this.buildUrl(path, requestQuery);
-    const response = await this.fetchImpl(url, {
+    const response = await this.request(url, {
       method: "GET",
       headers: this.createHeaders(),
     });
@@ -351,7 +354,7 @@ export class YnabClient {
     body: Record<string, unknown>,
   ): Promise<ClientResult<T>> {
     const url = this.buildUrl(path, {});
-    const response = await this.fetchImpl(url, {
+    const response = await this.request(url, {
       method,
       headers: {
         ...this.createHeaders(),
@@ -386,6 +389,24 @@ export class YnabClient {
       Accept: "application/json",
       Authorization: `Bearer ${this.getAccessToken()}`,
     };
+  }
+
+  private async request(url: URL, init: RequestInit): Promise<Response> {
+    try {
+      return await this.fetchImpl(url, {
+        ...init,
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new YnabApiError({
+          status: 504,
+          kind: "timeout",
+          message: "The YNAB API request timed out.",
+        });
+      }
+      throw error;
+    }
   }
 
   private getAccessToken(): string {
@@ -456,7 +477,7 @@ export function supportsDelta(path: string): boolean {
   ].some((pattern) => pattern.test(path));
 }
 
-export function selectDefaultPlanId(plans: unknown[]): string {
+export function selectDefaultPlanId(plans: unknown[], defaultPlan?: unknown): string {
   const planRecords = plans.filter(isRecord);
 
   if (planRecords.length === 0) {
@@ -465,6 +486,13 @@ export function selectDefaultPlanId(plans: unknown[]): string {
       kind: "not_found",
       message: "No YNAB plans are available for the configured token.",
     });
+  }
+
+  const declaredDefaultId = isRecord(defaultPlan) && typeof defaultPlan.id === "string"
+    ? defaultPlan.id
+    : undefined;
+  if (declaredDefaultId && planRecords.some((plan) => plan.id === declaredDefaultId)) {
+    return declaredDefaultId;
   }
 
   const preferredPlan = [...planRecords]

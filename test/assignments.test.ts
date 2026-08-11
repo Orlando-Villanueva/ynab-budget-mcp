@@ -40,6 +40,7 @@ function findTool(name: string, client: YnabClient) {
 function createStatefulClient(options: {
   failCategoryId?: string;
   ambiguousCategoryId?: string;
+  ambiguousServerCategoryId?: string;
   failFinalVerification?: boolean;
 } = {}) {
   const month = currentMonth();
@@ -90,6 +91,9 @@ function createStatefulClient(options: {
           readyToAssign.set(targetMonth, (readyToAssign.get(targetMonth) ?? 0) - delta);
           if (categoryId === options.ambiguousCategoryId) {
             throw new TypeError("Connection closed after write.");
+          }
+          if (categoryId === options.ambiguousServerCategoryId) {
+            return errorResponse(503, "service_unavailable");
           }
           return jsonResponse({ category, server_knowledge: 2 });
         }
@@ -260,7 +264,7 @@ test("approved assignment apply writes, verifies, and prevents token reuse", asy
     assert.equal(applied.isError, false);
     assert.deepEqual(state.patchOrder, ["groceries", "rent"]);
     assert.deepEqual(
-      applied.structuredContent?.assignments.map((assignment) => assignment.status),
+      applied.structuredContent?.assignments.map((assignment: Record<string, unknown>) => assignment.status),
       ["verified", "verified"],
     );
     const reused = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });
@@ -301,16 +305,15 @@ test("apply rejects an expired preview token", async () => {
   assert.ok(previewTool && applyTool);
   const originalNow = Date.now;
   const createdAt = originalNow();
-  Date.now = () => createdAt;
-  const preview = await previewTool.handler({
-    month: state.month,
-    assignments: [{ category_id: "rent", delta_currency: "10.00" }],
-  });
-
   const previous = process.env.YNAB_ENABLE_WRITES;
   process.env.YNAB_ENABLE_WRITES = "true";
-  Date.now = () => createdAt + 6 * 60_000;
   try {
+    Date.now = () => createdAt;
+    const preview = await previewTool.handler({
+      month: state.month,
+      assignments: [{ category_id: "rent", delta_currency: "10.00" }],
+    });
+    Date.now = () => createdAt + 6 * 60_000;
     const result = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });
     assert.equal(result.structuredContent?.error_type, "preview_expired");
     assert.equal(state.patchOrder.length, 0);
@@ -340,7 +343,35 @@ test("apply verifies an ambiguous network response before continuing", async () 
     const result = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });
     assert.equal(result.isError, false);
     assert.deepEqual(state.patchOrder, ["groceries", "rent"]);
-    assert.ok(result.structuredContent?.assignments.every((assignment) => assignment.status === "verified"));
+    assert.ok(result.structuredContent?.assignments.every((assignment: Record<string, unknown>) => assignment.status === "verified"));
+  } finally {
+    restoreWritesEnv(previous);
+  }
+});
+
+test("apply verifies an ambiguous server failure before continuing", async () => {
+  const state = createStatefulClient({ ambiguousServerCategoryId: "groceries" });
+  const tools = createYnabTools(state.client);
+  const previewTool = tools.find((tool) => tool.name === "ynab_preview_assignments");
+  const applyTool = tools.find((tool) => tool.name === "ynab_apply_assignment_preview");
+  assert.ok(previewTool && applyTool);
+  const preview = await previewTool.handler({
+    month: state.month,
+    assignments: [
+      { category_id: "groceries", delta_currency: "-10.00" },
+      { category_id: "rent", delta_currency: "10.00" },
+    ],
+  });
+
+  const previous = process.env.YNAB_ENABLE_WRITES;
+  process.env.YNAB_ENABLE_WRITES = "true";
+  try {
+    const result = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });
+    assert.equal(result.isError, false);
+    assert.deepEqual(state.patchOrder, ["groceries", "rent"]);
+    assert.ok(result.structuredContent?.assignments.every(
+      (assignment: Record<string, unknown>) => assignment.status === "verified",
+    ));
   } finally {
     restoreWritesEnv(previous);
   }
@@ -369,7 +400,7 @@ test("partial apply stops after a failure and reports untouched assignments", as
     assert.equal(result.structuredContent?.partial_failure, true);
     assert.deepEqual(state.patchOrder, ["groceries", "rent"]);
     const statuses = Object.fromEntries(
-      result.structuredContent?.assignments.map((assignment) => [assignment.category_id, assignment.status]),
+      result.structuredContent?.assignments.map((assignment: Record<string, unknown>) => [assignment.category_id, assignment.status]),
     );
     assert.equal(statuses.groceries, "verified");
     assert.equal(statuses.rent, "failed");
@@ -404,7 +435,7 @@ test("apply preserves successful write outcomes when final verification fails", 
     assert.equal(result.structuredContent?.final_state, null);
     assert.deepEqual(state.patchOrder, ["groceries", "rent"]);
     assert.ok(result.structuredContent?.assignments.every(
-      (assignment) => assignment.status === "applied_unverified" && assignment.ambiguous === true,
+      (assignment: Record<string, unknown>) => assignment.status === "applied_unverified" && assignment.ambiguous === true,
     ));
 
     const reused = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });

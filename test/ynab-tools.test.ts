@@ -135,7 +135,7 @@ test("ynab_get_budget_snapshot summarizes accounts and categories", async () => 
 
   assert.equal(categorySummary?.overspent_categories?.length, 2);
   assert.deepEqual(
-    categorySummary?.overspent_categories?.map((category) => category.name),
+    categorySummary?.overspent_categories?.map((category: Record<string, unknown>) => category.name),
     ["Wife birthday", "Groceries"],
   );
   assert.equal(categorySummary?.top_available_categories?.[0]?.name, "Rent");
@@ -358,7 +358,7 @@ test("ynab_list_transactions applies filters and wraps rate limit errors", async
 });
 
 test("budget snapshot returns complete uncovered totals and derived planning availability", async () => {
-  const categories = Array.from({ length: 12 }, (_, index) => ({
+  const categories: Array<Record<string, any>> = Array.from({ length: 12 }, (_, index) => ({
     id: `overspent-${index}`,
     name: `Overspent ${index}`,
     balance: -1_000,

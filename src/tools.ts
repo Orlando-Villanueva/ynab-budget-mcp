@@ -603,7 +603,7 @@ async function resolvePlanSelection(
   client: YnabClient,
   args: Record<string, unknown>,
   refresh = false,
-): Promise<Record<string, unknown>> {
+): Promise<{ requested_plan_id: string; resolved_plan_id: string; used_default_plan_resolution: boolean }> {
   const requestedPlanId = readOptionalStringArg(args, "plan_id") ?? "default";
   const resolvedPlanId = await client.resolvePlanId(requestedPlanId, refresh);
 
@@ -701,7 +701,7 @@ function readIntegerArg(
     return fallback;
   }
 
-  if (!Number.isInteger(value)) {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
     throw new Error(`${key} must be an integer.`);
   }
 
@@ -749,7 +749,7 @@ function lastDayOfMonth(month: string): string {
   return `${month}-${String(day).padStart(2, "0")}`;
 }
 
-function summarizeAccounts(accounts: Record<string, unknown>[]): Record<string, unknown> {
+function summarizeAccounts(accounts: Record<string, unknown>[]): Record<string, any> {
   const openAccounts = accounts.filter((account) => account.closed !== true);
   const onBudgetAccounts = openAccounts.filter((account) => account.on_budget === true);
   const offBudgetAccounts = openAccounts.filter((account) => account.on_budget !== true);
@@ -798,7 +798,7 @@ function summarizeAccounts(accounts: Record<string, unknown>[]): Record<string, 
 
 function summarizeCategories(
   categoryGroups: Record<string, unknown>[],
-): Record<string, unknown> {
+): Record<string, any> {
   const categories = flattenCategories(categoryGroups);
   const activeCategories = categories.filter(
     (category) => category.deleted !== true && category.internal !== true,
@@ -857,7 +857,7 @@ function summarizeCategories(
 function summarizePlanningAvailability(
   month: Record<string, unknown>,
   categoryGroups: Record<string, unknown>[],
-): Record<string, unknown> {
+): Record<string, any> {
   const readyToAssign = getMoneyMilliunits(month, "to_be_budgeted");
   const negativeBalanceTotal = flattenCategories(categoryGroups)
     .filter((category) => category.deleted !== true && category.internal !== true)
@@ -1115,9 +1115,9 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
+function asRecord(value: unknown): Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? value as Record<string, any>
     : {};
 }
 

@@ -39,7 +39,7 @@ test("McpServer initializes and lists tools", async () => {
     },
   });
 
-  assert.equal(initializeResponse?.result?.protocolVersion, "2025-06-18");
+  assert.equal(successResult(initializeResponse).protocolVersion, "2025-06-18");
 
   const toolsResponse = await testServer.handleMessage({
     jsonrpc: "2.0",
@@ -47,8 +47,8 @@ test("McpServer initializes and lists tools", async () => {
     method: "tools/list",
   });
 
-  assert.equal(toolsResponse?.result?.tools?.length, 1);
-  assert.equal(toolsResponse?.result?.tools?.[0]?.name, "echo");
+  assert.equal(successResult(toolsResponse).tools?.length, 1);
+  assert.equal(successResult(toolsResponse).tools?.[0]?.name, "echo");
 });
 
 test("McpServer handles tool calls and unknown tools", async () => {
@@ -62,7 +62,7 @@ test("McpServer handles tool calls and unknown tools", async () => {
     },
   });
 
-  assert.equal(callResponse?.result?.content?.[0]?.text, "hello");
+  assert.equal(successResult(callResponse).content?.[0]?.text, "hello");
 
   const errorResponse = await testServer.handleMessage({
     jsonrpc: "2.0",
@@ -74,5 +74,15 @@ test("McpServer handles tool calls and unknown tools", async () => {
     },
   });
 
-  assert.equal(errorResponse?.error?.code, -32601);
+  assert.equal(errorDetails(errorResponse).code, -32601);
 });
+
+function successResult(response: unknown): Record<string, any> {
+  assert.ok(response && typeof response === "object" && "result" in response);
+  return (response as { result: Record<string, any> }).result;
+}
+
+function errorDetails(response: unknown): { code: number; message: string } {
+  assert.ok(response && typeof response === "object" && "error" in response);
+  return (response as { error: { code: number; message: string } }).error;
+}

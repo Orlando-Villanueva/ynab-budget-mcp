@@ -5,7 +5,7 @@ export interface TextContent {
 
 export interface CallToolResult {
   content: TextContent[];
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: Record<string, any> | undefined;
   isError?: boolean;
 }
 
@@ -63,7 +63,7 @@ type JsonRpcErrorResponse = {
 type JsonRpcSuccessResponse = {
   jsonrpc: "2.0";
   id: RequestId;
-  result: Record<string, unknown>;
+  result: Record<string, any>;
 };
 
 const JSON_RPC_VERSION = "2.0";
@@ -77,7 +77,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = [
 export class McpServer {
   private readonly name: string;
   private readonly version: string;
-  private readonly instructions?: string;
+  private readonly instructions: string | undefined;
   private readonly tools = new Map<string, ToolDefinition>();
   private initialized = false;
 
@@ -91,9 +91,9 @@ export class McpServer {
     }
   }
 
-  async handleMessage(
-    rawMessage: unknown,
-  ): Promise<
+  async handleMessage(rawMessage: unknown[]): Promise<Array<JsonRpcSuccessResponse | JsonRpcErrorResponse> | null>;
+  async handleMessage(rawMessage: unknown): Promise<JsonRpcSuccessResponse | JsonRpcErrorResponse | null>;
+  async handleMessage(rawMessage: unknown): Promise<
     | JsonRpcSuccessResponse
     | JsonRpcErrorResponse
     | Array<JsonRpcSuccessResponse | JsonRpcErrorResponse>
@@ -341,7 +341,7 @@ export async function runStdioServer(server: McpServer): Promise<void> {
 
 export function textResult(
   text: string,
-  structuredContent?: Record<string, unknown>,
+  structuredContent?: Record<string, any>,
 ): CallToolResult {
   return {
     content: [{ type: "text", text }],
@@ -352,7 +352,7 @@ export function textResult(
 
 export function errorResult(
   text: string,
-  structuredContent?: Record<string, unknown>,
+  structuredContent?: Record<string, any>,
 ): CallToolResult {
   return {
     content: [{ type: "text", text }],

@@ -273,7 +273,8 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
             statuses.set(assignment.categoryId, statusFor(assignment, "applied"));
           } catch (error) {
             client.invalidatePlanCaches(preview.planId);
-            if (!(error instanceof YnabApiError)) {
+            const ambiguous = isAmbiguousWriteError(error);
+            if (ambiguous) {
               try {
                 const verification = await client.getMonthCategory(
                   preview.planId,
@@ -294,7 +295,7 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
             statuses.set(assignment.categoryId, {
               ...statusFor(assignment, "failed"),
               error: error instanceof Error ? error.message : "Unknown write failure.",
-              ambiguous: !(error instanceof YnabApiError),
+              ambiguous,
             });
             stopped = true;
           }
@@ -339,12 +340,14 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
 
         for (const assignment of preview.assignments) {
           const status = statuses.get(assignment.categoryId);
-          if (!status || status.status === "failed" || status.status === "not_attempted") {
+          if (!status || status.status === "not_attempted") {
             continue;
           }
           const category = finalState.categories.find((item) => item.id === assignment.categoryId);
           if (category && readMoney(category, "budgeted") === assignment.projectedBudgeted) {
             status.status = "verified";
+            delete status.error;
+            delete status.ambiguous;
           } else {
             status.status = "failed";
             status.error = "Post-write verification did not match the previewed assigned amount.";
@@ -355,17 +358,18 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
         const orderedStatuses = preview.assignments.map((assignment) =>
           statuses.get(assignment.categoryId) ?? statusFor(assignment, "not_attempted")
         );
+        const partialFailure = orderedStatuses.some((status) => status.status !== "verified");
         const finalSummary = summarizeFinalState(finalState, preview);
         const structured = {
           resolved_plan_id: preview.planId,
           month: preview.month,
           guard_month: preview.guardMonth,
           assignments: orderedStatuses,
-          partial_failure: stopped,
+          partial_failure: partialFailure,
           final_state: finalSummary,
         };
 
-        return stopped
+        return partialFailure
           ? errorResult("Assignment apply stopped before every change could be verified.", structured)
           : textResult("Every assignment was applied and verified.", structured);
       }),
@@ -503,13 +507,17 @@ function decimalCurrencyToMilliunits(value: string, decimalDigits: number): numb
   return result;
 }
 
+function isAmbiguousWriteError(error: unknown): boolean {
+  return !(error instanceof YnabApiError) || error.status >= 500 || error.status === 429;
+}
+
 function readCurrencyDecimalDigits(plan: Record<string, unknown>): number {
   const currencyFormat = asRecord(plan.currency_format);
   const decimalDigits = currencyFormat.decimal_digits;
   if (!Number.isInteger(decimalDigits) || decimalDigits < 0 || decimalDigits > 3) {
     throw new Error("The plan currency precision is unavailable or unsupported for safe writes.");
   }
-  return decimalDigits as number;
+  return decimalDigits;
 }
 
 function summarizeUncovered(month: Record<string, unknown>): { signed: number; uncovered: number } {
@@ -668,8 +676,8 @@ async function wrapAssignmentErrors(
   }
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
+function asRecord(value: unknown): Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? value as Record<string, any>
     : {};
 }

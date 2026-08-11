@@ -192,6 +192,45 @@ test("YnabClient resolves default plan ids through the plans list", async () => 
   assert.equal(await client.resolvePlanId("custom-plan"), "custom-plan");
 });
 
+test("YnabClient honors YNAB's declared default plan over the fallback heuristic", async () => {
+  const client = new YnabClient({
+    accessToken: "token-123",
+    fetchImpl: async () => new Response(JSON.stringify({
+      data: {
+        default_plan: { id: "declared-default" },
+        plans: [
+          { id: "declared-default", name: "Older plan", last_modified_on: "2025-01-01T00:00:00Z" },
+          { id: "newer-plan", name: "Newer plan", last_modified_on: "2026-01-01T00:00:00Z" },
+        ],
+      },
+    }), { status: 200 }),
+  });
+
+  assert.equal(await client.resolvePlanId(), "declared-default");
+});
+
+test("YnabClient maps an aborted request timeout into a structured API error", async () => {
+  let sawTimeoutSignal = false;
+  const client = new YnabClient({
+    accessToken: "token-123",
+    requestTimeoutMs: 10,
+    fetchImpl: async (_input, init) => {
+      const signal = init?.signal;
+      assert.ok(signal);
+      sawTimeoutSignal = true;
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    },
+  });
+
+  await assert.rejects(client.listPlans(), (error: unknown) => {
+    assert.ok(error instanceof YnabApiError);
+    assert.equal(error.status, 504);
+    assert.equal(error.kind, "timeout");
+    return true;
+  });
+  assert.equal(sawTimeoutSignal, true);
+});
+
 test("YnabClient refresh bypasses and replaces delta baselines", async () => {
   const seenUrls: string[] = [];
   let callCount = 0;

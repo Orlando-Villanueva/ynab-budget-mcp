@@ -10,12 +10,18 @@ const child = spawn(
   { stdio: "inherit" },
 );
 
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => child.kill(signal));
+const signals = ["SIGINT", "SIGTERM"];
+const forwardSignal = (signal) => child.kill(signal);
+
+for (const signal of signals) {
+  process.on(signal, forwardSignal);
 }
 
 child.on("exit", (code, signal) => {
   if (signal) {
+    for (const parentSignal of signals) {
+      process.removeListener(parentSignal, forwardSignal);
+    }
     process.kill(process.pid, signal);
     return;
   }

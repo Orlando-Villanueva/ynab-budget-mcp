@@ -7,7 +7,7 @@ It lets MCP-capable agents query budgeting data through curated tools instead of
 
 ## Project Shape
 
-- Runtime: Node.js 22+
+- Runtime: Node.js 22.9+
 - Language: TypeScript executed directly with Node's `--experimental-transform-types`
 - Package manager: npm
 - Test runner: `node:test`

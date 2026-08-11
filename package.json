@@ -35,10 +35,10 @@
     "build": "tsc --project tsconfig.build.json",
     "prepack": "npm run build",
     "test": "node --experimental-transform-types --test",
-    "check": "npm run build && npm test"
+    "check": "tsc --noEmit --project tsconfig.json && npm run build && npm test"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

@@ -25,7 +25,7 @@ The server runs locally, sends requests directly to YNAB, and has no telemetry o
 
 ### Connect it to your assistant
 
-You need Node.js 22+ and a YNAB Personal Access Token from [YNAB developer settings](https://app.ynab.com/settings/developer).
+You need Node.js 22.9+ and a YNAB Personal Access Token from [YNAB developer settings](https://app.ynab.com/settings/developer).
 
 Install the package:
 
@@ -57,7 +57,7 @@ This section is for working on the MCP itself rather than simply using it with a
 Clone the repository, install its development dependencies, and create a local token file:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Orlando-Villanueva/ynab-budget-mcp.git
 cd ynab-budget-mcp
 npm ci
 cp .env.example .env
