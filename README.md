@@ -27,13 +27,35 @@ The server runs locally, sends requests directly to YNAB, and has no telemetry o
 
 You need Node.js 22.9+ and a YNAB Personal Access Token from [YNAB developer settings](https://app.ynab.com/settings/developer).
 
-Install the package:
+#### Ask your agent to install it
 
-```bash
-npm install -g ynab-budget-mcp
+If your AI assistant supports local stdio MCP servers, copy and paste this prompt into it. The linked README is the source of truth; the agent should use the instructions for its own client.
+
+```text
+Please install YNAB Budget MCP for me, following the canonical instructions at https://github.com/Orlando-Villanueva/ynab-budget-mcp#connect-it-to-your-assistant.
+
+Use the published npm package, not a repository clone or local source checkout. Follow the generic terminal setup unless this is Codex, in which case use the Codex CLI or Codex app instructions. When the MCP configuration requires my YNAB token, stop and tell me to enter it myself in this client's MCP server Environment variables or Secrets field, using the exact key `YNAB_ACCESS_TOKEN`. Do not ask me to paste the token into chat, a command, a project file, or any shared configuration. Leave `YNAB_ENABLE_WRITES` unset. When setup is complete, tell me how to verify the MCP connected successfully.
 ```
 
-Then add this stdio server to your MCP-capable assistant. For example, in Codex:
+#### Generic terminal setup
+
+Install the published package:
+
+```bash
+npm install -g ynab-budget-mcp@beta
+```
+
+Then add a local stdio MCP server in your assistant's settings with:
+
+| Field | Value |
+| --- | --- |
+| Command | `ynab-mcp` |
+| Environment variable or secret | `YNAB_ACCESS_TOKEN` = your YNAB Personal Access Token |
+| Working directory | Leave blank |
+
+Enter the token in the assistant's MCP **Environment variables** or **Secrets** field—not in a repository `.env` file, an issue, a screenshot, or a chat message. Every MCP client labels this screen differently, but the variable name is always `YNAB_ACCESS_TOKEN`.
+
+If your MCP client uses JSON configuration, this is the generic server definition:
 
 ```json
 {
@@ -44,7 +66,47 @@ Then add this stdio server to your MCP-capable assistant. For example, in Codex:
 }
 ```
 
-The same command works with any MCP client that supports stdio servers. If you prefer not to install globally, use `npx -y ynab-budget-mcp`, or install it in a project and set `command` to `./node_modules/.bin/ynab-mcp`.
+#### Codex CLI
+
+In Terminal, run the following. It uses a hidden token prompt, then saves a local Codex MCP configuration without requiring a repository checkout:
+
+```zsh
+read -s "YNAB_ACCESS_TOKEN?Paste your YNAB access token: "
+echo
+codex mcp add ynab \
+  --env "YNAB_ACCESS_TOKEN=$YNAB_ACCESS_TOKEN" \
+  -- npx -y ynab-budget-mcp@beta
+unset YNAB_ACCESS_TOKEN
+```
+
+Restart Codex, then run `codex mcp get ynab` to confirm the server is configured.
+
+#### Codex app
+
+In Codex, open **Plugins**, choose **Add** → **MCP server**, and create a stdio server with these values:
+
+| Field | Value |
+| --- | --- |
+| Command | `npx` |
+| Arguments | `-y`, `ynab-budget-mcp@beta` |
+| Environment variable | `YNAB_ACCESS_TOKEN` = your YNAB Personal Access Token |
+| Working directory | Leave blank |
+
+Save the server and restart Codex. This downloads the published package when needed; no repository clone, local `.env`, or global installation is required.
+
+#### Other MCP clients
+
+If you prefer not to install globally, configure your client to run `npx -y ynab-budget-mcp@beta` instead. The following JSON is one generic example; it is **not** a Codex configuration file:
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "ynab-budget-mcp@beta"],
+  "env": {
+    "YNAB_ACCESS_TOKEN": "your-token"
+  }
+}
+```
 
 Keep the token private. It grants access to the YNAB data available to it; never add it to a repository, issue, screenshot, or shared configuration file.
 
