@@ -1,0 +1,47 @@
+{
+  "name": "ynab-budget-mcp",
+  "version": "0.4.0-beta.1",
+  "description": "Curated YNAB MCP tools with experimental guarded assignment previews.",
+  "type": "module",
+  "bin": {
+    "ynab-mcp": "bin/ynab-mcp.mjs"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "SUPPORT.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ynab",
+    "budgeting",
+    "ai-assistant"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Orlando-Villanueva/ynab-budget-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Orlando-Villanueva/ynab-budget-mcp/issues"
+  },
+  "homepage": "https://github.com/Orlando-Villanueva/ynab-budget-mcp#readme",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --experimental-transform-types src/index.ts",
+    "build": "tsc --project tsconfig.build.json",
+    "prepack": "npm run build",
+    "test": "node --experimental-transform-types --test",
+    "check": "tsc --noEmit --project tsconfig.json && npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  }
+}
