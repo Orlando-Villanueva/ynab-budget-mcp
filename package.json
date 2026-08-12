@@ -1,6 +1,6 @@
 {
   "name": "ynab-budget-mcp",
-  "version": "0.4.0-beta.1",
+  "version": "0.4.0-beta.2",
   "description": "Curated YNAB MCP tools with experimental guarded assignment previews.",
   "type": "module",
   "bin": {

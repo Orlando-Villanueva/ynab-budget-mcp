@@ -1,5 +1,7 @@
 # YNAB Budget MCP
 
+[![npm version](https://img.shields.io/npm/v/ynab-budget-mcp?label=npm)](https://www.npmjs.com/package/ynab-budget-mcp)
+
 A local [Model Context Protocol](https://modelcontextprotocol.io/) server that gives AI assistants a focused, guarded way to understand YNAB budget data.
 
 ## For AI-assistant users
