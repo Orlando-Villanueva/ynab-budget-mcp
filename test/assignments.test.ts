@@ -161,7 +161,7 @@ test("preview does not double-count assignments that cover uncovered spending", 
   );
 });
 
-test("assignment preview rejects unsafe inputs and requires a future guard month", async () => {
+test("assignment preview rejects malformed or unsafe inputs and requires a future guard month", async () => {
   const state = createStatefulClient();
   const tool = findTool("ynab_preview_assignments", state.client);
 
@@ -182,12 +182,6 @@ test("assignment preview rejects unsafe inputs and requires a future guard month
     assignments: [{ category_id: "rent", delta_currency: "10.00" }],
   });
   assert.equal(futureWithoutGuard.isError, true);
-
-  const tooMuch = await tool.handler({
-    month: state.month,
-    assignments: [{ category_id: "rent", delta_currency: "151.00" }],
-  });
-  assert.equal(tooMuch.isError, true);
 
   const duplicate = await tool.handler({
     month: state.month,
@@ -215,7 +209,64 @@ test("assignment preview rejects unsafe inputs and requires a future guard month
     assignments: [{ category_id: "hidden", delta_currency: "1.00" }],
   });
   assert.equal(hidden.isError, false);
-  assert.equal(hidden.structuredContent?.warnings.length, 1);
+  assert.ok(hidden.structuredContent?.warnings.some((warning: string) => warning.includes("hidden")));
+});
+
+test("preview permits a partial current-month assignment while reporting remaining uncovered spending", async () => {
+  const state = createStatefulClient();
+  const tool = findTool("ynab_preview_assignments", state.client);
+  state.readyToAssign.set(state.month, 270_000);
+  const overspent = state.categories.find((category) => category.id === "overspent");
+  assert.ok(overspent);
+  overspent.balance = -349_900;
+
+  const result = await tool.handler({
+    month: state.month,
+    assignments: [{ category_id: "rent", delta_currency: "1.35" }],
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.structuredContent?.projected_target_ready_to_assign_currency, 268.65);
+  assert.equal(result.structuredContent?.projected_target_uncovered_spending_currency, 349.9);
+  const effects = result.structuredContent?.target_month_effects as Record<string, Record<string, unknown>>;
+  const readyToAssign = effects.ready_to_assign as Record<string, unknown>;
+  const uncoveredSpending = effects.uncovered_spending as Record<string, unknown>;
+  assert.equal(readyToAssign.after_currency, 268.65);
+  assert.equal(uncoveredSpending.after_currency, 349.9);
+  assert.deepEqual(uncoveredSpending.remaining_categories, [
+    {
+      category_id: "overspent",
+      category_name: "Overspent",
+      balance: -349_900,
+      balance_currency: -349.9,
+      uncovered_spending: 349_900,
+      uncovered_spending_currency: 349.9,
+    },
+  ]);
+  assert.ok(result.structuredContent?.warnings.some((warning: string) => warning.includes("uncovered spending")));
+  assert.equal(typeof result.structuredContent?.preview_token, "string");
+});
+
+test("preview permits a cross-month reallocation when the future target month already has negative Ready to Assign", async () => {
+  const state = createStatefulClient();
+  const tool = findTool("ynab_preview_assignments", state.client);
+  state.readyToAssign.set(state.futureMonth, -79_900);
+
+  const result = await tool.handler({
+    month: state.futureMonth,
+    guard_month: state.month,
+    assignments: [
+      { category_id: "groceries", delta_currency: "-10.00" },
+      { category_id: "rent", delta_currency: "10.00" },
+    ],
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.structuredContent?.projected_target_ready_to_assign_currency, -79.9);
+  assert.equal(result.structuredContent?.projected_guard_ready_to_assign_currency, 200);
+  assert.equal(result.structuredContent?.cross_month_effects?.guard_month_ready_to_assign_delta_currency, 0);
+  assert.ok(result.structuredContent?.warnings.some((warning: string) => warning.includes("negative Ready to Assign")));
+  assert.equal(typeof result.structuredContent?.preview_token, "string");
 });
 
 test("apply is visible but disabled without the exact environment opt-in", async () => {

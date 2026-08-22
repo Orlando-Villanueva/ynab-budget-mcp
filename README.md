@@ -19,9 +19,11 @@ Examples of useful requests include:
 
 All budget reads and assignment previews are read-only. The only write capability is an intentionally narrow, **experimental** category-assignment workflow:
 
-1. Your assistant creates a preview containing the exact category changes and planning-availability checks.
+1. Your assistant creates a preview containing the exact category changes, before/after Ready to Assign, remaining uncovered categories, and relevant cross-month effects.
 2. You review and explicitly approve that exact preview.
 3. Applying it additionally requires `YNAB_ENABLE_WRITES=true`, a fresh single-use token, and an unchanged YNAB state.
+
+An assignment preview can intentionally leave categories overspent or a month with negative Ready to Assign. Those states are never treated as available money: the preview reports them as warnings and lists each remaining uncovered category and amount. This allows a deliberate partial assignment (for example, protecting an imminent bill) or a future-month reallocation while keeping the risk visible for approval.
 
 The server runs locally, sends requests directly to YNAB, and has no telemetry or persistent storage.
 
