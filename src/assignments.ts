@@ -441,11 +441,6 @@ function fingerprintState(
   guardMonth: Record<string, unknown>,
   categories: Record<string, unknown>[],
 ): string {
-  const negativeCategories = monthCategories(guardMonth)
-    .filter(isActiveCategory)
-    .filter((category) => readMoney(category, "balance") < 0)
-    .map((category) => ({ id: category.id, balance: readMoney(category, "balance") }))
-    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
   const affected = categories
     .map((category) => ({
       id: category.id,
@@ -459,10 +454,19 @@ function fingerprintState(
     currency_format: plan.currency_format ?? null,
     target_ready_to_assign: readMoney(targetMonth, "to_be_budgeted"),
     guard_ready_to_assign: readMoney(guardMonth, "to_be_budgeted"),
-    negative_categories: negativeCategories,
+    target_negative_categories: negativeCategoriesForMonth(targetMonth),
+    guard_negative_categories: negativeCategoriesForMonth(guardMonth),
     affected_categories: affected,
   });
   return createHash("sha256").update(value).digest("hex");
+}
+
+function negativeCategoriesForMonth(month: Record<string, unknown>): Record<string, unknown>[] {
+  return monthCategories(month)
+    .filter(isActiveCategory)
+    .filter((category) => readMoney(category, "balance") < 0)
+    .map((category) => ({ id: category.id, balance: readMoney(category, "balance") }))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
 
 function parseAssignments(value: unknown, decimalDigits: number): AssignmentInput[] {
