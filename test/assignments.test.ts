@@ -45,12 +45,19 @@ function createStatefulClient(options: {
 } = {}) {
   const month = currentMonth();
   const futureMonth = nextMonth(month);
-  const categories: MutableCategory[] = [
+  const initialCategories: MutableCategory[] = [
     { id: "rent", name: "Rent", budgeted: 0, balance: 0 },
     { id: "groceries", name: "Groceries", budgeted: 100_000, balance: 100_000 },
     { id: "overspent", name: "Overspent", budgeted: 0, balance: -50_000 },
     { id: "hidden", name: "Hidden", budgeted: 0, balance: 0, hidden: true },
   ];
+  const categoriesByMonth = new Map<string, MutableCategory[]>(
+    [month, futureMonth].map((selectedMonth) => [
+      selectedMonth,
+      initialCategories.map((category) => ({ ...category })),
+    ]),
+  );
+  const categories = categoriesByMonth.get(month)!;
   const readyToAssign = new Map([[month, 200_000], [futureMonth, 200_000]]);
   const patchOrder: string[] = [];
   const client = new YnabClient({
@@ -75,7 +82,8 @@ function createStatefulClient(options: {
       if (categoryMatch) {
         const targetMonth = categoryMatch[1] ?? "";
         const categoryId = decodeURIComponent(categoryMatch[2] ?? "");
-        const category = categories.find((candidate) => candidate.id === categoryId);
+        const monthCategories = categoriesByMonth.get(targetMonth) ?? [];
+        const category = monthCategories.find((candidate) => candidate.id === categoryId);
         if (!category) {
           return errorResponse(404, "not_found");
         }
@@ -113,7 +121,7 @@ function createStatefulClient(options: {
           month: {
             month: `${selectedMonth}-01`,
             to_be_budgeted: readyToAssign.get(selectedMonth) ?? 0,
-            categories,
+            categories: categoriesByMonth.get(selectedMonth) ?? [],
           },
         });
       }
@@ -121,7 +129,7 @@ function createStatefulClient(options: {
       return errorResponse(404, "not_found");
     },
   });
-  return { client, categories, readyToAssign, patchOrder, month, futureMonth };
+  return { client, categories, categoriesByMonth, readyToAssign, patchOrder, month, futureMonth };
 }
 
 test("assignment preview validates exact deltas and issues a five-minute token", async () => {
@@ -161,7 +169,7 @@ test("preview does not double-count assignments that cover uncovered spending", 
   );
 });
 
-test("assignment preview rejects unsafe inputs and requires a future guard month", async () => {
+test("assignment preview rejects malformed or unsafe inputs and requires a future guard month", async () => {
   const state = createStatefulClient();
   const tool = findTool("ynab_preview_assignments", state.client);
 
@@ -182,12 +190,6 @@ test("assignment preview rejects unsafe inputs and requires a future guard month
     assignments: [{ category_id: "rent", delta_currency: "10.00" }],
   });
   assert.equal(futureWithoutGuard.isError, true);
-
-  const tooMuch = await tool.handler({
-    month: state.month,
-    assignments: [{ category_id: "rent", delta_currency: "151.00" }],
-  });
-  assert.equal(tooMuch.isError, true);
 
   const duplicate = await tool.handler({
     month: state.month,
@@ -215,7 +217,80 @@ test("assignment preview rejects unsafe inputs and requires a future guard month
     assignments: [{ category_id: "hidden", delta_currency: "1.00" }],
   });
   assert.equal(hidden.isError, false);
-  assert.equal(hidden.structuredContent?.warnings.length, 1);
+  assert.ok(hidden.structuredContent?.warnings.some((warning: string) => warning.includes("hidden")));
+});
+
+test("preview permits a partial current-month assignment while reporting remaining uncovered spending", async () => {
+  const state = createStatefulClient();
+  const tool = findTool("ynab_preview_assignments", state.client);
+  state.readyToAssign.set(state.month, 270_000);
+  const overspent = state.categories.find((category) => category.id === "overspent");
+  assert.ok(overspent);
+  overspent.balance = -349_900;
+
+  const result = await tool.handler({
+    month: state.month,
+    assignments: [{ category_id: "rent", delta_currency: "1.35" }],
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.structuredContent?.projected_target_ready_to_assign_currency, 268.65);
+  assert.equal(result.structuredContent?.projected_target_uncovered_spending_currency, 349.9);
+  const effects = result.structuredContent?.target_month_effects as Record<string, Record<string, unknown>>;
+  const readyToAssign = effects.ready_to_assign as Record<string, unknown>;
+  const uncoveredSpending = effects.uncovered_spending as Record<string, unknown>;
+  assert.equal(readyToAssign.after_currency, 268.65);
+  assert.equal(uncoveredSpending.after_currency, 349.9);
+  assert.deepEqual(uncoveredSpending.remaining_categories, [
+    {
+      category_id: "overspent",
+      category_name: "Overspent",
+      balance: -349_900,
+      balance_currency: -349.9,
+      uncovered_spending: 349_900,
+      uncovered_spending_currency: 349.9,
+    },
+  ]);
+  assert.ok(result.structuredContent?.warnings.some((warning: string) => warning.includes("uncovered spending")));
+  assert.equal(typeof result.structuredContent?.preview_token, "string");
+});
+
+test("cross-month apply changes only the target month when its Ready to Assign is already negative", async () => {
+  const state = createStatefulClient();
+  const tools = createYnabTools(state.client);
+  const previewTool = tools.find((tool) => tool.name === "ynab_preview_assignments");
+  const applyTool = tools.find((tool) => tool.name === "ynab_apply_assignment_preview");
+  assert.ok(previewTool && applyTool);
+  state.readyToAssign.set(state.futureMonth, -79_900);
+
+  const preview = await previewTool.handler({
+    month: state.futureMonth,
+    guard_month: state.month,
+    assignments: [
+      { category_id: "groceries", delta_currency: "-10.00" },
+      { category_id: "rent", delta_currency: "10.00" },
+    ],
+  });
+
+  assert.equal(preview.isError, false);
+  assert.equal(preview.structuredContent?.projected_target_ready_to_assign_currency, -79.9);
+  assert.equal(preview.structuredContent?.projected_guard_ready_to_assign_currency, 200);
+  assert.equal(preview.structuredContent?.cross_month_effects?.guard_month_ready_to_assign_delta_currency, 0);
+  assert.ok(preview.structuredContent?.warnings.some((warning: string) => warning.includes("negative Ready to Assign")));
+
+  const previous = process.env.YNAB_ENABLE_WRITES;
+  process.env.YNAB_ENABLE_WRITES = "true";
+  try {
+    const applied = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });
+    assert.equal(applied.isError, false);
+    assert.equal(state.categoriesByMonth.get(state.month)?.find((category) => category.id === "groceries")?.budgeted, 100_000);
+    assert.equal(state.categoriesByMonth.get(state.month)?.find((category) => category.id === "rent")?.budgeted, 0);
+    assert.equal(state.categoriesByMonth.get(state.futureMonth)?.find((category) => category.id === "groceries")?.budgeted, 90_000);
+    assert.equal(state.categoriesByMonth.get(state.futureMonth)?.find((category) => category.id === "rent")?.budgeted, 10_000);
+    assert.equal(applied.structuredContent?.final_state?.cross_month_effects?.guard_month_ready_to_assign_delta_currency, 0);
+  } finally {
+    restoreWritesEnv(previous);
+  }
 });
 
 test("apply is visible but disabled without the exact environment opt-in", async () => {
@@ -285,6 +360,34 @@ test("apply rejects stale previews before mutation", async () => {
     assignments: [{ category_id: "rent", delta_currency: "10.00" }],
   });
   state.readyToAssign.set(state.month, 199_000);
+
+  const previous = process.env.YNAB_ENABLE_WRITES;
+  process.env.YNAB_ENABLE_WRITES = "true";
+  try {
+    const result = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });
+    assert.equal(result.structuredContent?.error_type, "stale_preview");
+    assert.equal(state.patchOrder.length, 0);
+  } finally {
+    restoreWritesEnv(previous);
+  }
+});
+
+test("apply rejects a cross-month preview when an unassigned target category changes uncovered spending", async () => {
+  const state = createStatefulClient();
+  const tools = createYnabTools(state.client);
+  const previewTool = tools.find((tool) => tool.name === "ynab_preview_assignments");
+  const applyTool = tools.find((tool) => tool.name === "ynab_apply_assignment_preview");
+  assert.ok(previewTool && applyTool);
+  const preview = await previewTool.handler({
+    month: state.futureMonth,
+    guard_month: state.month,
+    assignments: [{ category_id: "rent", delta_currency: "10.00" }],
+  });
+  const targetOverspent = state.categoriesByMonth.get(state.futureMonth)?.find(
+    (category) => category.id === "overspent",
+  );
+  assert.ok(targetOverspent);
+  targetOverspent.balance = -60_000;
 
   const previous = process.env.YNAB_ENABLE_WRITES;
   process.env.YNAB_ENABLE_WRITES = "true";

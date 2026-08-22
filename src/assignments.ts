@@ -67,7 +67,7 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
           guard_month: {
             type: "string",
             pattern: "^\\d{4}-\\d{2}$",
-            description: "Required for future-month assignments; constrains usable funds.",
+            description: "Required for future-month assignments; includes an earlier-month comparison in the preview.",
           },
           assignments: {
             type: "array",
@@ -132,22 +132,22 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
         const netDelta = previewAssignments.reduce((total, item) => total + item.delta, 0);
         const targetReadyToAssign = readMoney(state.targetMonth, "to_be_budgeted");
         const guardReadyToAssign = readMoney(state.guardMonth, "to_be_budgeted");
+        const targetUncovered = summarizeUncovered(state.targetMonth).uncovered;
         const guardUncovered = summarizeUncovered(state.guardMonth).uncovered;
         const projectedTargetReadyToAssign = targetReadyToAssign - netDelta;
+        const projectedTargetUncovered = summarizeProjectedUncovered(
+          state.targetMonth,
+          previewAssignments,
+        );
         const guardPlanningAvailable = guardReadyToAssign - guardUncovered;
-        const projectedGuardReadyToAssign = guardReadyToAssign - netDelta;
+        const projectedGuardReadyToAssign = month === guardMonth
+          ? projectedTargetReadyToAssign
+          : guardReadyToAssign;
         const projectedGuardUncovered = month === guardMonth
-          ? summarizeProjectedUncovered(state.guardMonth, previewAssignments)
+          ? projectedTargetUncovered
           : guardUncovered;
         const projectedGuardPlanningAvailable =
           projectedGuardReadyToAssign - projectedGuardUncovered;
-
-        if (projectedTargetReadyToAssign < 0) {
-          throw new Error("The assignment batch would make target-month Ready to Assign negative.");
-        }
-        if (projectedGuardPlanningAvailable < 0) {
-          throw new Error("The assignment batch exceeds guard-month planning availability after uncovered spending.");
-        }
 
         const token = randomBytes(32).toString("base64url");
         const expiresAt = Date.now() + PREVIEW_TTL_MS;
@@ -166,6 +166,10 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
         const warnings = previewAssignments
           .filter((assignment) => assignment.hidden)
           .map((assignment) => `Category ${assignment.categoryId} is hidden.`);
+        addMonthRiskWarnings(warnings, "target", month, projectedTargetReadyToAssign, projectedTargetUncovered);
+        if (guardMonth !== month) {
+          addMonthRiskWarnings(warnings, "guard", guardMonth, projectedGuardReadyToAssign, projectedGuardUncovered);
+        }
 
         return textResult("Assignment preview is valid. Apply it only after explicit user approval.", {
           requested_plan_id: requestedPlanId,
@@ -180,6 +184,10 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
           target_ready_to_assign_currency: targetReadyToAssign / 1000,
           projected_target_ready_to_assign: projectedTargetReadyToAssign,
           projected_target_ready_to_assign_currency: projectedTargetReadyToAssign / 1000,
+          target_uncovered_spending: targetUncovered,
+          target_uncovered_spending_currency: targetUncovered / 1000,
+          projected_target_uncovered_spending: projectedTargetUncovered,
+          projected_target_uncovered_spending_currency: projectedTargetUncovered / 1000,
           guard_ready_to_assign: guardReadyToAssign,
           guard_ready_to_assign_currency: guardReadyToAssign / 1000,
           guard_uncovered_spending: guardUncovered,
@@ -193,7 +201,29 @@ export function createAssignmentTools(client: YnabClient): ToolDefinition[] {
           projected_guard_planning_available_after_uncovered_spending: projectedGuardPlanningAvailable,
           projected_guard_planning_available_after_uncovered_spending_currency:
             projectedGuardPlanningAvailable / 1000,
-          derivation: "Ready to Assign minus all active non-internal negative category balances.",
+          derivation: "Planning availability is a derived risk indicator: Ready to Assign minus all active non-internal negative category balances. It does not block an explicitly approved preview.",
+          target_month_effects: summarizeMonthEffects(
+            state.targetMonth,
+            previewAssignments,
+            targetReadyToAssign,
+            projectedTargetReadyToAssign,
+          ),
+          guard_month_effects: summarizeMonthEffects(
+            state.guardMonth,
+            month === guardMonth ? previewAssignments : [],
+            guardReadyToAssign,
+            projectedGuardReadyToAssign,
+          ),
+          cross_month_effects: guardMonth === month
+            ? null
+            : {
+              target_month: month,
+              guard_month: guardMonth,
+              guard_month_category_assignments: 0,
+              guard_month_ready_to_assign_delta: 0,
+              guard_month_ready_to_assign_delta_currency: 0,
+              explanation: "This preview changes categories only in the target month. The earlier guard month is included for decision-grade comparison and is not mutated.",
+            },
           warnings,
           preview_token: token,
           expires_at: new Date(expiresAt).toISOString(),
@@ -411,11 +441,6 @@ function fingerprintState(
   guardMonth: Record<string, unknown>,
   categories: Record<string, unknown>[],
 ): string {
-  const negativeCategories = monthCategories(guardMonth)
-    .filter(isActiveCategory)
-    .filter((category) => readMoney(category, "balance") < 0)
-    .map((category) => ({ id: category.id, balance: readMoney(category, "balance") }))
-    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
   const affected = categories
     .map((category) => ({
       id: category.id,
@@ -429,10 +454,19 @@ function fingerprintState(
     currency_format: plan.currency_format ?? null,
     target_ready_to_assign: readMoney(targetMonth, "to_be_budgeted"),
     guard_ready_to_assign: readMoney(guardMonth, "to_be_budgeted"),
-    negative_categories: negativeCategories,
+    target_negative_categories: negativeCategoriesForMonth(targetMonth),
+    guard_negative_categories: negativeCategoriesForMonth(guardMonth),
     affected_categories: affected,
   });
   return createHash("sha256").update(value).digest("hex");
+}
+
+function negativeCategoriesForMonth(month: Record<string, unknown>): Record<string, unknown>[] {
+  return monthCategories(month)
+    .filter(isActiveCategory)
+    .filter((category) => readMoney(category, "balance") < 0)
+    .map((category) => ({ id: category.id, balance: readMoney(category, "balance") }))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
 
 function parseAssignments(value: unknown, decimalDigits: number): AssignmentInput[] {
@@ -548,6 +582,80 @@ function summarizeProjectedUncovered(
   return Math.abs(signed);
 }
 
+function summarizeMonthEffects(
+  month: Record<string, unknown>,
+  assignments: PreviewAssignment[],
+  readyToAssign: number,
+  projectedReadyToAssign: number,
+): Record<string, unknown> {
+  const before = summarizeUncovered(month).uncovered;
+  const after = summarizeProjectedUncovered(month, assignments);
+  return {
+    ready_to_assign: {
+      before: readyToAssign,
+      before_currency: readyToAssign / 1000,
+      after: projectedReadyToAssign,
+      after_currency: projectedReadyToAssign / 1000,
+      change: projectedReadyToAssign - readyToAssign,
+      change_currency: (projectedReadyToAssign - readyToAssign) / 1000,
+    },
+    uncovered_spending: {
+      before,
+      before_currency: before / 1000,
+      after,
+      after_currency: after / 1000,
+      change: after - before,
+      change_currency: (after - before) / 1000,
+      remaining_categories: summarizeUncoveredCategories(month, assignments),
+    },
+  };
+}
+
+function summarizeUncoveredCategories(
+  month: Record<string, unknown>,
+  assignments: PreviewAssignment[] = [],
+): Record<string, unknown>[] {
+  const assignmentByCategory = new Map(
+    assignments.map((assignment) => [assignment.categoryId, assignment]),
+  );
+  return monthCategories(month)
+    .filter(isActiveCategory)
+    .map((category) => {
+      const id = typeof category.id === "string" ? category.id : null;
+      const assignment = id ? assignmentByCategory.get(id) : undefined;
+      const balance = assignment?.projectedBalance ?? readMoney(category, "balance");
+      return {
+        category_id: id,
+        category_name: typeof category.name === "string" ? category.name : null,
+        balance,
+        balance_currency: balance / 1000,
+        uncovered_spending: balance < 0 ? Math.abs(balance) : 0,
+        uncovered_spending_currency: balance < 0 ? Math.abs(balance) / 1000 : 0,
+      };
+    })
+    .filter((category) => category.uncovered_spending !== 0)
+    .sort((left, right) => Number(right.uncovered_spending) - Number(left.uncovered_spending));
+}
+
+function addMonthRiskWarnings(
+  warnings: string[],
+  label: "target" | "guard",
+  month: string,
+  projectedReadyToAssign: number,
+  projectedUncovered: number,
+): void {
+  if (projectedReadyToAssign < 0) {
+    warnings.push(
+      `The ${label} month (${month}) is projected to have negative Ready to Assign (${projectedReadyToAssign / 1000}).`,
+    );
+  }
+  if (projectedUncovered > 0) {
+    warnings.push(
+      `The ${label} month (${month}) is projected to retain ${projectedUncovered / 1000} of uncovered spending; see ${label}_month_effects.uncovered_spending.remaining_categories.`,
+    );
+  }
+}
+
 function summarizeFinalState(state: LoadedAssignmentState, preview: PreviewRecord): Record<string, unknown> {
   const guardUncovered = summarizeUncovered(state.guardMonth).uncovered;
   const targetReady = readMoney(state.targetMonth, "to_be_budgeted");
@@ -561,6 +669,28 @@ function summarizeFinalState(state: LoadedAssignmentState, preview: PreviewRecor
     guard_uncovered_spending_currency: guardUncovered / 1000,
     guard_planning_available_after_uncovered_spending: guardReady - guardUncovered,
     guard_planning_available_after_uncovered_spending_currency: (guardReady - guardUncovered) / 1000,
+    target_month_effects: summarizeMonthEffects(
+      state.targetMonth,
+      [],
+      targetReady,
+      targetReady,
+    ),
+    guard_month_effects: summarizeMonthEffects(
+      state.guardMonth,
+      [],
+      guardReady,
+      guardReady,
+    ),
+    cross_month_effects: preview.guardMonth === preview.month
+      ? null
+      : {
+        target_month: preview.month,
+        guard_month: preview.guardMonth,
+        guard_month_category_assignments: 0,
+        guard_month_ready_to_assign_delta: 0,
+        guard_month_ready_to_assign_delta_currency: 0,
+        explanation: "Final verification confirms target-month changes. The earlier guard month was not mutated by this preview.",
+      },
     categories: preview.assignments.map((assignment) => {
       const category = state.categories.find((candidate) => candidate.id === assignment.categoryId) ?? {};
       return {
