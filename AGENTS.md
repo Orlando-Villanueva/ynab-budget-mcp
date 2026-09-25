@@ -36,7 +36,7 @@ It lets MCP-capable agents query budgeting data through curated tools instead of
 
 ## Implementation Rules
 
-- Keep the tool surface curated and read-only by default; guarded assignment preview/apply is the sole experimental opt-in write workflow
+- Keep the tool surface curated and read-only by default; guarded category-assignment and category-creation preview/apply workflows are the only experimental opt-in writes
 - Do not add generic raw endpoint passthrough tools unless explicitly requested
 - Prefer `/v1/plans` endpoints over legacy `/budgets` paths
 - Preserve raw milliunit values and add normalized `*_currency` fields where helpful

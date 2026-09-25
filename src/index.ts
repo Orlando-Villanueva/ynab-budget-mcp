@@ -5,9 +5,9 @@ import { YnabClient } from "./ynab/client.ts";
 const client = new YnabClient();
 const server = new McpServer({
   name: "ynab-mcp",
-  version: "0.4.0-beta.3",
+  version: "0.4.0-beta.4",
   instructions:
-    'Curated YNAB budget reads plus an experimental, opt-in assignment workflow. Reads and assignment previews do not change YNAB. Applying assignments requires an explicitly approved, fresh preview and YNAB_ENABLE_WRITES=true. Prefer plan_id="default" unless the user asks for a specific plan.',
+    "Curated YNAB budget reads plus experimental, opt-in assignment and category-creation workflows. Reads and previews do not change YNAB. Apply a write only after the user explicitly approves its exact, fresh preview and YNAB_ENABLE_WRITES=true. Identify the requested plan explicitly; do not assume the default plan is the right one.",
   tools: createYnabTools(client),
 });
 

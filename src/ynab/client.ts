@@ -249,6 +249,17 @@ export class YnabClient {
     );
   }
 
+  async createCategory(
+    planId: string,
+    category: { category_group_id: string; name: string },
+  ): Promise<ClientResult<{ category: Record<string, any>; server_knowledge?: number }>> {
+    return this.sendJson<{ category: Record<string, any>; server_knowledge?: number }>(
+      "POST",
+      `/plans/${encodeURIComponent(planId)}/categories`,
+      { category },
+    );
+  }
+
   invalidatePlanCaches(planId: string): void {
     const encodedPlanId = encodeURIComponent(planId);
     const prefix = `/plans/${encodedPlanId}`;
@@ -349,7 +360,7 @@ export class YnabClient {
   }
 
   private async sendJson<T extends Record<string, unknown>>(
-    method: "PATCH",
+    method: "PATCH" | "POST",
     path: string,
     body: Record<string, unknown>,
   ): Promise<ClientResult<T>> {
