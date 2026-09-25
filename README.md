@@ -14,13 +14,13 @@ Examples of useful requests include:
 - “Show my uncategorized transactions from the last two weeks.”
 - “What scheduled transactions are due in the next 30 days?”
 - “Preview assigning $100 to Groceries, but do not apply it.”
-- “Preview creating a category named Pet Care in my Household group, but do not apply it.”
+- “Preview creating a category named Pet Care in my Household group in my 2026 plan, but do not apply it.”
 
 ### You stay in control
 
 All reads and previews are read-only. Two narrow, **experimental** workflows can write to YNAB: category assignments and category creation. Both follow the same approval gate:
 
-1. Your assistant creates a preview of the exact operation. Assignment previews include before/after Ready to Assign, remaining uncovered categories, and relevant cross-month effects. Category-creation previews confirm the selected plan and group and check for an existing category with the same name.
+1. Your assistant creates a preview of the exact operation. Assignment previews include before/after Ready to Assign, remaining uncovered categories, and relevant cross-month effects. Category-creation previews require an explicit plan ID, confirm the selected plan and group, and check for an existing category with the same name.
 2. You review and explicitly approve that exact preview.
 3. Applying it additionally requires `YNAB_ENABLE_WRITES=true`, a fresh single-use token, and an unchanged YNAB state. Category creation also verifies the resulting category and avoids retrying when the API response is ambiguous.
 

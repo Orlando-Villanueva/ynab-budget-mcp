@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import test from "node:test";
 
 import { McpServer } from "../src/mcp.ts";
@@ -8,13 +9,14 @@ import { YnabClient } from "../src/ynab/client.ts";
 test("category creation completes end to end over MCP with a mock YNAB API", async () => {
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   const categories: Array<Record<string, unknown>> = [];
+  const accessToken = randomBytes(24).toString("base64url");
   const client = new YnabClient({
-    accessToken: "test-token",
+    accessToken,
     fetchImpl: async (input, init) => {
       const url = new URL(String(input));
       const method = init?.method ?? "GET";
       const headers = new Headers(init?.headers);
-      assert.equal(headers.get("authorization"), "Bearer test-token");
+      assert.equal(headers.get("authorization"), `Bearer ${accessToken}`);
 
       if (method === "GET" && url.pathname === "/v1/plans") {
         calls.push({ method, path: url.pathname });
@@ -87,6 +89,7 @@ test("category creation completes end to end over MCP with a mock YNAB API", asy
     assert.equal(exposedTools.length, 12);
 
     const preview = await callTool(server, 3, "ynab_preview_category_creation", {
+      plan_id: "plan-e2e",
       category_group_id: "group-e2e",
       name: "Pet Care",
     });

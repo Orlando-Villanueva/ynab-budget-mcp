@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import test from "node:test";
 
 import { createYnabTools } from "../src/tools.ts";
@@ -29,6 +30,7 @@ function findTool(client: YnabClient, name: string) {
 function createCategoryClient(options: {
   createStatus?: number;
   ambiguousResponse?: boolean;
+  verificationStatus?: number;
 } = {}) {
   const groups: TestCategoryGroup[] = [
     {
@@ -52,16 +54,27 @@ function createCategoryClient(options: {
     },
   ];
   let createCalls = 0;
+  let categoryListCalls = 0;
   let createdPayload: unknown;
   let nextCategoryId = 0;
+  const accessToken = randomBytes(24).toString("base64url");
   const client = new YnabClient({
-    accessToken: "token-123",
+    accessToken,
     fetchImpl: async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/plans") && init?.method !== "POST") {
         return jsonResponse({ plans: [{ id: "plan-1", name: "Plan" }] });
       }
       if (url.pathname === "/v1/plans/plan-1/categories" && init?.method === "GET") {
+        categoryListCalls += 1;
+        if (options.verificationStatus && categoryListCalls === 3) {
+          return new Response(JSON.stringify({
+            error: { id: "rate-limit-id", name: "rate_limit", detail: "Too many requests" },
+          }), {
+            status: options.verificationStatus,
+            headers: { "content-type": "application/json" },
+          });
+        }
         return jsonResponse({ category_groups: cloneGroups(groups) });
       }
       if (url.pathname === "/v1/plans/plan-1/categories" && init?.method === "POST") {
@@ -114,16 +127,34 @@ test("category creation preview validates the target and does not write", async 
   assert.ok(previewTool);
 
   const result = await previewTool.handler({
+    plan_id: "plan-1",
     category_group_id: "group-1",
     name: "  Pet Care  ",
   });
 
   assert.equal(result.isError, false);
-  assert.equal(result.structuredContent?.requested_plan_id, "default");
+  assert.equal(result.structuredContent?.requested_plan_id, "plan-1");
   assert.equal(result.structuredContent?.resolved_plan_id, "plan-1");
   assert.equal(result.structuredContent?.category_group_name, "Household");
   assert.equal(result.structuredContent?.category_name, "Pet Care");
   assert.equal(typeof result.structuredContent?.preview_token, "string");
+  assert.equal(state.createCalls(), 0);
+});
+
+test("category creation preview requires an explicit plan ID and rejects aliases", async () => {
+  const state = createCategoryClient();
+  const previewTool = findTool(state.client, "ynab_preview_category_creation");
+
+  for (const planId of [undefined, "default", "last-used"]) {
+    const result = await previewTool.handler({
+      ...(planId === undefined ? {} : { plan_id: planId }),
+      category_group_id: "group-1",
+      name: "Pet Care",
+    });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", planId === undefined ? /plan_id/i : /explicit/i);
+  }
+  assert.deepEqual(previewTool.inputSchema.required, ["plan_id", "category_group_id", "name"]);
   assert.equal(state.createCalls(), 0);
 });
 
@@ -139,7 +170,7 @@ test("category creation preview rejects missing, internal, deleted, duplicate, a
   ];
 
   for (const input of cases) {
-    const result = await previewTool.handler(input);
+    const result = await previewTool.handler({ plan_id: "plan-1", ...input });
     assert.equal(result.isError, true);
     assert.match(result.content[0]?.text ?? "", new RegExp(input.message, "i"));
   }
@@ -152,7 +183,7 @@ test("category creation apply requires the write gate and creates then verifies 
   const previewTool = tools.find((entry) => entry.name === "ynab_preview_category_creation");
   const applyTool = tools.find((entry) => entry.name === "ynab_apply_category_creation_preview");
   assert.ok(previewTool && applyTool);
-  const preview = await previewTool.handler({ category_group_id: "group-1", name: "Pet Care" });
+  const preview = await previewTool.handler({ plan_id: "plan-1", category_group_id: "group-1", name: "Pet Care" });
   const token = preview.structuredContent?.preview_token;
   const previous = process.env.YNAB_ENABLE_WRITES;
   delete process.env.YNAB_ENABLE_WRITES;
@@ -185,7 +216,7 @@ test("category creation apply rejects a stale preview without writing", async ()
   const previewTool = tools.find((entry) => entry.name === "ynab_preview_category_creation");
   const applyTool = tools.find((entry) => entry.name === "ynab_apply_category_creation_preview");
   assert.ok(previewTool && applyTool);
-  const preview = await previewTool.handler({ category_group_id: "group-1", name: "Pet Care" });
+  const preview = await previewTool.handler({ plan_id: "plan-1", category_group_id: "group-1", name: "Pet Care" });
   state.groups[0]!.name = "Changed after preview";
 
   const previous = process.env.YNAB_ENABLE_WRITES;
@@ -205,7 +236,7 @@ test("category creation apply reports API validation failures without claiming s
   const previewTool = tools.find((entry) => entry.name === "ynab_preview_category_creation");
   const applyTool = tools.find((entry) => entry.name === "ynab_apply_category_creation_preview");
   assert.ok(previewTool && applyTool);
-  const preview = await previewTool.handler({ category_group_id: "group-1", name: "Pet Care" });
+  const preview = await previewTool.handler({ plan_id: "plan-1", category_group_id: "group-1", name: "Pet Care" });
 
   const previous = process.env.YNAB_ENABLE_WRITES;
   process.env.YNAB_ENABLE_WRITES = "true";
@@ -226,7 +257,7 @@ test("category creation reconciles an ambiguous response without retrying", asyn
   const previewTool = tools.find((entry) => entry.name === "ynab_preview_category_creation");
   const applyTool = tools.find((entry) => entry.name === "ynab_apply_category_creation_preview");
   assert.ok(previewTool && applyTool);
-  const preview = await previewTool.handler({ category_group_id: "group-1", name: "Pet Care" });
+  const preview = await previewTool.handler({ plan_id: "plan-1", category_group_id: "group-1", name: "Pet Care" });
 
   const previous = process.env.YNAB_ENABLE_WRITES;
   process.env.YNAB_ENABLE_WRITES = "true";
@@ -236,6 +267,35 @@ test("category creation reconciles an ambiguous response without retrying", asyn
     assert.equal(result.structuredContent?.write_outcome, "present_after_ambiguous_response");
     assert.equal(result.structuredContent?.category?.name, "Pet Care");
     assert.equal(state.createCalls(), 1);
+  } finally {
+    restoreWritesEnv(previous);
+  }
+});
+
+test("category creation preserves structured API errors when verification fails", async () => {
+  const state = createCategoryClient({ verificationStatus: 429 });
+  const tools = createYnabTools(state.client);
+  const previewTool = tools.find((entry) => entry.name === "ynab_preview_category_creation");
+  const applyTool = tools.find((entry) => entry.name === "ynab_apply_category_creation_preview");
+  assert.ok(previewTool && applyTool);
+  const preview = await previewTool.handler({
+    plan_id: "plan-1",
+    category_group_id: "group-1",
+    name: "Pet Care",
+  });
+
+  const previous = process.env.YNAB_ENABLE_WRITES;
+  process.env.YNAB_ENABLE_WRITES = "true";
+  try {
+    const result = await applyTool.handler({ preview_token: preview.structuredContent?.preview_token });
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent?.write_outcome, "accepted_unverified");
+    const verificationErrorDetails = result.structuredContent?.verification_error_details as
+      Record<string, unknown> | undefined;
+    assert.equal(verificationErrorDetails?.status, 429);
+    assert.equal(verificationErrorDetails?.error_id, "rate-limit-id");
+    assert.equal(verificationErrorDetails?.error_name, "rate_limit");
+    assert.equal(verificationErrorDetails?.detail, "Too many requests");
   } finally {
     restoreWritesEnv(previous);
   }

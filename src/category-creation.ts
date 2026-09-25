@@ -37,9 +37,9 @@ export function createCategoryCreationTools(client: YnabClient): ToolDefinition[
         "Validate a new category name and category group, then create a short-lived preview token without changing YNAB.",
       inputSchema: {
         type: "object",
-        required: ["category_group_id", "name"],
+        required: ["plan_id", "category_group_id", "name"],
         properties: {
-          plan_id: { type: "string", description: 'YNAB plan id. Defaults to "default".' },
+          plan_id: { type: "string", description: "Explicit YNAB plan ID; aliases are not accepted." },
           category_group_id: { type: "string", description: "Existing category group id." },
           name: { type: "string", description: "Name for the new category." },
         },
@@ -53,7 +53,13 @@ export function createCategoryCreationTools(client: YnabClient): ToolDefinition[
       },
       handler: async (args) => wrapCategoryCreationErrors(async () => {
         purgeExpiredPreviews(previews);
-        const requestedPlanId = readOptionalString(args.plan_id) ?? "default";
+        const requestedPlanId = readRequiredString(args.plan_id, "plan_id").trim();
+        if (!requestedPlanId) {
+          throw new Error("plan_id must be an explicit YNAB plan ID.");
+        }
+        if (["default", "last-used"].includes(requestedPlanId.toLowerCase())) {
+          throw new Error("plan_id must be an explicit YNAB plan ID; plan aliases are not accepted.");
+        }
         const categoryGroupId = readRequiredString(args.category_group_id, "category_group_id");
         const categoryName = readCategoryName(args.name);
         const planId = await client.resolvePlanId(requestedPlanId, true);
@@ -168,6 +174,7 @@ export function createCategoryCreationTools(client: YnabClient): ToolDefinition[
             write_outcome: "accepted_unverified",
             verification_failed: true,
             verification_error: errorMessage(error),
+            verification_error_details: error instanceof YnabApiError ? error.toStructured() : null,
           });
         }
 
@@ -342,16 +349,6 @@ function readCategoryName(value: unknown): string {
     throw new Error("name must contain at least one non-whitespace character.");
   }
   return name;
-}
-
-function readOptionalString(value: unknown): string | undefined {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    throw new Error("Expected a string value.");
-  }
-  return value;
 }
 
 function readRequiredString(value: unknown, key: string): string {

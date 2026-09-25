@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -333,12 +334,13 @@ test("YnabClient PATCHes an absolute month category budgeted amount", async () =
 });
 
 test("YnabClient POSTs the supported category creation payload", async () => {
+  const accessToken = randomBytes(24).toString("base64url");
   let seenMethod = "";
   let seenBody = "";
   let seenUrl = "";
   let seenAuthorization = "";
   const client = new YnabClient({
-    accessToken: "token-123",
+    accessToken,
     fetchImpl: async (input, init) => {
       seenUrl = String(input);
       seenMethod = init?.method ?? "";
@@ -357,7 +359,7 @@ test("YnabClient POSTs the supported category creation payload", async () => {
 
   assert.equal(seenMethod, "POST");
   assert.match(seenUrl, /\/plans\/plan-1\/categories$/);
-  assert.equal(seenAuthorization, "Bearer token-123");
+  assert.equal(seenAuthorization, `Bearer ${accessToken}`);
   assert.deepEqual(JSON.parse(seenBody), {
     category: { category_group_id: "group-1", name: "Pet Care" },
   });
