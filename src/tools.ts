@@ -9,6 +9,7 @@ import {
   YnabClient,
   YnabConfigurationError,
 } from "./ynab/client.ts";
+import { createCategoryCreationTools } from "./category-creation.ts";
 import { createAssignmentTools } from "./assignments.ts";
 import {
   expandScheduledTransaction,
@@ -570,7 +571,7 @@ export function createYnabTools(client: YnabClient): ToolDefinition[] {
     },
   ];
 
-  return [...tools, ...createAssignmentTools(client)];
+  return [...tools, ...createAssignmentTools(client), ...createCategoryCreationTools(client)];
 }
 
 async function wrapToolErrors(

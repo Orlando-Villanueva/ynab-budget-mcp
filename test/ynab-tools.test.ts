@@ -14,7 +14,7 @@ function findTool(name: string, client: YnabClient) {
   return tool;
 }
 
-test("public beta exposes curated reads plus guarded assignments", () => {
+test("public beta exposes curated reads plus guarded writes", () => {
   const tools = createYnabTools(new YnabClient({ accessToken: "token-123" }));
   const names = tools.map((tool) => tool.name);
   for (const name of [
@@ -28,10 +28,12 @@ test("public beta exposes curated reads plus guarded assignments", () => {
     "ynab_list_scheduled_transactions",
     "ynab_preview_assignments",
     "ynab_apply_assignment_preview",
+    "ynab_preview_category_creation",
+    "ynab_apply_category_creation_preview",
   ]) {
     assert.ok(names.includes(name), name);
   }
-  assert.equal(tools.length, 10);
+  assert.equal(tools.length, 12);
 });
 
 test("ynab_list_plans returns structured plans", async () => {

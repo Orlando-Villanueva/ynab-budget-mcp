@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/ynab-budget-mcp?label=npm)](https://www.npmjs.com/package/ynab-budget-mcp)
 
-A local [Model Context Protocol](https://modelcontextprotocol.io/) server that gives AI assistants a focused, guarded way to understand YNAB budget data.
+A local [Model Context Protocol](https://modelcontextprotocol.io/) server that gives AI assistants a focused, guarded way to work with YNAB budget data.
 
 ## For AI-assistant users
 
@@ -14,14 +14,15 @@ Examples of useful requests include:
 - “Show my uncategorized transactions from the last two weeks.”
 - “What scheduled transactions are due in the next 30 days?”
 - “Preview assigning $100 to Groceries, but do not apply it.”
+- “Preview creating a category named Pet Care in my Household group in my 2026 plan, but do not apply it.”
 
 ### You stay in control
 
-All budget reads and assignment previews are read-only. The only write capability is an intentionally narrow, **experimental** category-assignment workflow:
+All reads and previews are read-only. Two narrow, **experimental** workflows can write to YNAB: category assignments and category creation. Both follow the same approval gate:
 
-1. Your assistant creates a preview containing the exact category changes, before/after Ready to Assign, remaining uncovered categories, and relevant cross-month effects.
+1. Your assistant creates a preview of the exact operation. Assignment previews include before/after Ready to Assign, remaining uncovered categories, and relevant cross-month effects. Category-creation previews require an explicit plan ID, confirm the selected plan and group, and check for an existing category with the same name.
 2. You review and explicitly approve that exact preview.
-3. Applying it additionally requires `YNAB_ENABLE_WRITES=true`, a fresh single-use token, and an unchanged YNAB state.
+3. Applying it additionally requires `YNAB_ENABLE_WRITES=true`, a fresh single-use token, and an unchanged YNAB state. Category creation also verifies the resulting category and avoids retrying when the API response is ambiguous.
 
 An assignment preview can intentionally leave categories overspent or a month with negative Ready to Assign. Those states are never treated as available money: the preview reports them as warnings and lists each remaining uncovered category and amount. This allows a deliberate partial assignment (for example, protecting an imminent bill) or a future-month reallocation while keeping the risk visible for approval.
 
@@ -129,7 +130,7 @@ npm ci
 cp .env.example .env
 ```
 
-Set `YNAB_ACCESS_TOKEN` in your uncommitted `.env`. To permit a real, explicitly approved assignment apply during a local session, also set `YNAB_ENABLE_WRITES=true`; leave it unset for normal development and testing.
+Set `YNAB_ACCESS_TOKEN` in your uncommitted `.env`. To permit a real, explicitly approved assignment or category-creation apply during a local session, also set `YNAB_ENABLE_WRITES=true`; leave it unset for normal development and testing.
 
 Start the local stdio server with:
 

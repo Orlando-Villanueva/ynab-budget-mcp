@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -330,4 +331,41 @@ test("YnabClient PATCHes an absolute month category budgeted amount", async () =
   assert.match(seenUrl, /\/months\/2026-08-01\/categories\/cat-1$/);
   assert.deepEqual(JSON.parse(seenBody), { category: { budgeted: 123_450 } });
   assert.equal(response.data.category.budgeted_currency, 123.45);
+});
+
+test("YnabClient POSTs the supported category creation payload", async () => {
+  const accessToken = randomBytes(24).toString("base64url");
+  let seenMethod = "";
+  let seenBody = "";
+  let seenUrl = "";
+  let seenAuthorization = "";
+  const client = new YnabClient({
+    accessToken,
+    fetchImpl: async (input, init) => {
+      seenUrl = String(input);
+      seenMethod = init?.method ?? "";
+      seenBody = String(init?.body ?? "");
+      seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+      return new Response(JSON.stringify({
+        data: { category: { id: "cat-new", category_group_id: "group-1", name: "Pet Care" } },
+      }), { status: 201, headers: { "content-type": "application/json" } });
+    },
+  });
+
+  const response = await client.createCategory("plan-1", {
+    category_group_id: "group-1",
+    name: "Pet Care",
+  });
+
+  assert.equal(seenMethod, "POST");
+  assert.match(seenUrl, /\/plans\/plan-1\/categories$/);
+  assert.equal(seenAuthorization, `Bearer ${accessToken}`);
+  assert.deepEqual(JSON.parse(seenBody), {
+    category: { category_group_id: "group-1", name: "Pet Care" },
+  });
+  assert.deepEqual(response.data.category, {
+    id: "cat-new",
+    category_group_id: "group-1",
+    name: "Pet Care",
+  });
 });
